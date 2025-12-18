@@ -60,8 +60,10 @@ class MarkovText:
     def _pick_start_state(self, seed_term=None):
         """
         Choose a valid starting state.
+        - For state_size=1, seed_term should be a single token (string)
+        - For state_size>1, seed_term can be tuple/list of tokens or a string to tokenize
         """
-        if not self.term_dict:
+        if self.term_dict is None or not self.term_dict:
             raise ValueError("Term dictionary is empty. Call get_term_dict() first.")
 
         if seed_term is None:
@@ -87,9 +89,17 @@ class MarkovText:
         """
         Generate text using the Markov property.
 
-        term_count: total number of tokens to generate
+        term_count: total number of tokens to generate (must be int-castable)
         seed_term: optional starting token or k-gram
+
+        If a state has no followers (dead end), generation "jumps" to a random valid
+        state and continues, without exceeding term_count tokens.
         """
+        try:
+            term_count = int(term_count)
+        except Exception as e:
+            raise ValueError("term_count must be an integer") from e
+
         if term_count <= 0:
             return ""
 
@@ -97,14 +107,21 @@ class MarkovText:
             self.get_term_dict()
 
         state = self._pick_start_state(seed_term)
-        output = list(state)
+        output = list(state)[:term_count]
 
-        for _ in range(term_count - self.state_size):
+        while len(output) < term_count:
             followers = self.term_dict.get(state, [])
 
             if not followers:
+                # Dead end: jump to a random valid state and add minimal tokens
                 state = self._py_rng.choice(list(self.term_dict.keys()))
-                output.extend(list(state))
+                if self.state_size == 1:
+                    output.append(state[0])
+                else:
+                    for tok in state:
+                        if len(output) >= term_count:
+                            break
+                        output.append(tok)
                 continue
 
             next_token = self._np_rng.choice(followers)
@@ -126,9 +143,10 @@ if __name__ == "__main__":
     text_gen = MarkovText(corpus, state_size=1)
 
     term_dict = text_gen.get_term_dict()
-    print("Transition dictionary:", term_dict)
+    print("Transition dictionary size:", len(term_dict))
 
     print("\nGenerated text:")
     print(text_gen.generate(term_count=30))
     print(text_gen.generate(term_count=30, seed_term="Life"))
+
 
